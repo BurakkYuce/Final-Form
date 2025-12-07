@@ -14,7 +14,7 @@ function AgentPage({ coins, userAddress }) {
         {
             id: 1,
             from: "agent",
-            text: 'Welcome! I can help you with:\n• Check balance: "What is my SUI balance?"\n• Transfer: "Send 1 SUI to 0x..."\n• Address Book: "Create my address book"\n• Save contacts: "Save Alice 0x... as alice"',
+            text: 'Welcome! I can help you with:\n• Check balance: "What is my SUI balance?"\n• Transfer: "Send 1 SUI to 0x..."\n• Staking: "Stake 5 SUI" or "Unstake 2 SUI"\n• Check stake: "How much do I have staked?"\n• Address Book: "Create my address book"\n• Save contacts: "Save Alice 0x... as alice"',
             time: "now",
         },
     ]);
@@ -126,6 +126,38 @@ function AgentPage({ coins, userAddress }) {
                         addMessage("agent", response.message || "I need your address book ID to save contacts.");
                     }
                 }
+                else if (action === "stake_token") {
+                    // Stake intent - add to queue
+                    if (response.transaction_data) {
+                        const txData = response.transaction_data;
+                        const amountInSui = (txData.amount / 1e9).toFixed(4);
+                        addMessage("agent", `Added stake transaction to queue: ${amountInSui} SUI`);
+                        setTransactionQueue(prev => [...prev, {
+                            ...txData,
+                            type: "stake"
+                        }]);
+                    } else {
+                        addMessage("agent", response.message || "Ready to stake SUI.");
+                    }
+                }
+                else if (action === "unstake_token") {
+                    // Unstake intent - add to queue
+                    if (response.transaction_data) {
+                        const txData = response.transaction_data;
+                        const amountInSui = (txData.amount / 1e9).toFixed(4);
+                        addMessage("agent", `Added unstake transaction to queue: ${amountInSui} SUI`);
+                        setTransactionQueue(prev => [...prev, {
+                            ...txData,
+                            type: "unstake"
+                        }]);
+                    } else {
+                        addMessage("agent", response.message || "Ready to unstake SUI.");
+                    }
+                }
+                else if (action === "get_stake_info") {
+                    // Stake info query - display result
+                    addMessage("agent", response.message || "Stake information retrieved.");
+                }
                 else if (action === "list_contacts") {
                     addMessage("agent", response.message || "Your contacts will be listed here once you have an address book.");
                 }
@@ -178,6 +210,29 @@ function AgentPage({ coins, userAddress }) {
                     const amountInMist = BigInt(item.amount);
                     const [coin] = tx.splitCoins(tx.gas, [amountInMist]);
                     tx.transferObjects([coin], item.recipient);
+                }
+                else if (item.type === "stake") {
+                    // --- Stake logic ---
+                    const amountInMist = BigInt(item.amount);
+                    const [coinToStake] = tx.splitCoins(tx.gas, [amountInMist]);
+                    tx.moveCall({
+                        target: item.target,
+                        arguments: [
+                            tx.object(item.stake_pool_id),
+                            coinToStake
+                        ]
+                    });
+                }
+                else if (item.type === "unstake") {
+                    // --- Unstake logic ---
+                    const amountInMist = BigInt(item.amount);
+                    tx.moveCall({
+                        target: item.target,
+                        arguments: [
+                            tx.object(item.stake_pool_id),
+                            tx.pure.u64(amountInMist)
+                        ]
+                    });
                 }
                 else if (item.type === "move_call") {
                     // --- Move Call logic ---
