@@ -4,6 +4,7 @@ import { Transaction } from '@mysten/sui/transactions';
 import { sendChatMessage } from '../services/agentApi';
 import CoinList from '../components/coins/CoinList';
 import CoinMiniChart from '../components/coins/CoinMiniChart';
+import TransactionQueue from '../components/TransactionQueue';
 
 /**
  * AgentPage - AI Agent Chat interface with wallet transaction signing
@@ -19,7 +20,7 @@ function AgentPage({ coins, userAddress }) {
     ]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const [pendingTransaction, setPendingTransaction] = useState(null);
+    const [transactionQueue, setTransactionQueue] = useState([]);
 
     const chatRef = useRef(null);
     const suiClient = useSuiClient();
@@ -48,96 +49,7 @@ function AgentPage({ coins, userAddress }) {
         return msg;
     };
 
-    /**
-     * Build and execute a Move call transaction
-     */
-    const executeMoveCall = async (transactionData) => {
-        console.log("executeMoveCall called with:", transactionData);
 
-        const tx = new Transaction();
-
-        // Parse arguments for the move call
-        const args = (transactionData.arguments || []).map(arg => {
-            if (typeof arg === 'object') {
-                switch (arg.type) {
-                    case 'object':
-                        return tx.object(arg.value);
-                    case 'string':
-                        return tx.pure.string(arg.value);
-                    case 'u64':
-                        return tx.pure.u64(arg.value);
-                    case 'vector_u8':
-                        // Convert hex string to Uint8Array
-                        const bytes = new Uint8Array(
-                            arg.value.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []
-                        );
-                        return tx.pure.vector('u8', Array.from(bytes));
-                    default:
-                        return arg.value;
-                }
-            }
-            return arg;
-        });
-
-        console.log("Building moveCall with:", {
-            target: transactionData.target,
-            arguments: args,
-            typeArguments: transactionData.type_arguments || []
-        });
-
-        // Add the move call
-        tx.moveCall({
-            target: transactionData.target,
-            arguments: args,
-            typeArguments: transactionData.type_arguments || [],
-        });
-
-        console.log("Calling signAndExecute...");
-
-        // Sign and execute
-        const result = await signAndExecute({
-            transaction: tx,
-        });
-
-        console.log("signAndExecute result:", result);
-
-        // Wait for transaction to be confirmed
-        await suiClient.waitForTransaction({
-            digest: result.digest,
-        });
-
-        console.log("Transaction confirmed!");
-
-        return result;
-    };
-
-    /**
-     * Build and execute a SUI transfer transaction
-     */
-    const executeTransfer = async (transactionData) => {
-        const tx = new Transaction();
-
-        // Convert amount to MIST (1 SUI = 1e9 MIST)
-        const amountInMist = BigInt(transactionData.amount);
-
-        // Split coins for the transfer
-        const [coin] = tx.splitCoins(tx.gas, [amountInMist]);
-
-        // Transfer to recipient
-        tx.transferObjects([coin], transactionData.recipient);
-
-        // Sign and execute
-        const result = await signAndExecute({
-            transaction: tx,
-        });
-
-        // Wait for confirmation
-        await suiClient.waitForTransaction({
-            digest: result.digest,
-        });
-
-        return result;
-    };
 
     const sendMessage = async () => {
         if (!input.trim() || isLoading) return;
@@ -175,82 +87,58 @@ function AgentPage({ coins, userAddress }) {
                     addMessage("agent", balanceMsg);
                 }
                 else if (action === "transfer_token" && response.dry_run) {
-                    // Transfer intent - show confirmation
+                    // Transfer intent - add to queue
                     const dryRun = response.dry_run;
-                    const confirmMsg = `**Transfer Request**\n\n` +
-                        `Amount: ${dryRun.amount_formatted || dryRun.amount} ${dryRun.token}\n` +
-                        `To: ${dryRun.recipient?.slice(0, 10)}...${dryRun.recipient?.slice(-8)}\n` +
-                        `Gas: ~${dryRun.estimated_gas_formatted || dryRun.estimated_gas} SUI\n\n` +
-                        `Type "yes" to confirm the transfer.`;
+                    const queueMsg = `Added transfer to queue:\n` +
+                        `${dryRun.amount_formatted || dryRun.amount} ${dryRun.token} -> ${dryRun.recipient?.slice(0, 6)}...`;
 
-                    addMessage("agent", confirmMsg, { type: "confirmation" });
-                    setPendingTransaction({
+                    addMessage("agent", queueMsg); // Inform user
+                    setTransactionQueue(prev => [...prev, {
                         ...response.transaction_data,
-                        type: "transfer"
-                    });
+                        type: "transfer",
+                        // Store formatting info for UI
+                        amount_formatted: dryRun.amount_formatted,
+                        token: dryRun.token,
+                        recipient: dryRun.recipient
+                    }]);
                 }
                 else if (action === "create_address_book") {
-                    // Address book creation
-                    console.log("CREATE_ADDRESS_BOOK intent received");
-                    console.log("transaction_data:", response.transaction_data);
-
                     if (response.transaction_data) {
-                        const confirmMsg = `**Create Address Book**\n\n` +
-                            `This will create your personal on-chain address book.\n` +
-                            `One-time setup, stored permanently on Sui.\n` +
-                            `Estimated gas: ~0.01 SUI\n\n` +
-                            `Type "yes" to confirm.`;
-
-                        const txData = {
+                        addMessage("agent", "Added 'Create Address Book' to transaction queue.");
+                        setTransactionQueue(prev => [...prev, {
                             ...response.transaction_data,
-                            type: "move_call"
-                        };
-                        console.log("Setting pendingTransaction:", txData);
-
-                        addMessage("agent", confirmMsg, { type: "confirmation" });
-                        setPendingTransaction(txData);
+                            type: "move_call",
+                            function_name: "create_address_book"
+                        }]);
                     } else {
-                        console.log("No transaction_data in response!");
                         addMessage("agent", response.message || "Ready to create your address book.");
                     }
                 }
                 else if (action === "save_contact") {
-                    // Save contact to address book
                     if (response.transaction_data) {
-                        const contactKey = response.transaction_data.contact_key;
-                        const contactName = response.transaction_data.contact_name;
-
-                        const confirmMsg = `**Save Contact**\n\n` +
-                            `Name: ${contactName}\n` +
-                            `Key: ${contactKey}\n` +
-                            `Will be encrypted and stored on-chain.\n` +
-                            `Estimated gas: ~0.02 SUI\n\n` +
-                            `Type "yes" to confirm.`;
-
-                        addMessage("agent", confirmMsg, { type: "confirmation" });
-                        setPendingTransaction({
+                        addMessage("agent", `Added 'Save Contact: ${response.transaction_data.contact_name}' to queue.`);
+                        setTransactionQueue(prev => [...prev, {
                             ...response.transaction_data,
-                            type: "move_call"
-                        });
+                            type: "move_call",
+                            function_name: "add_contact"
+                        }]);
                     } else {
-                        addMessage("agent", response.message || "I need your address book ID to save contacts. Create one first with 'Create my address book'.");
+                        addMessage("agent", response.message || "I need your address book ID to save contacts.");
                     }
                 }
                 else if (action === "list_contacts") {
-                    // List contacts
                     addMessage("agent", response.message || "Your contacts will be listed here once you have an address book.");
                 }
                 else if (action === "resolve_contact") {
-                    addMessage("agent", `Looking for contact: ${parsed_data?.name}. Contact not found in your address book.`);
+                    addMessage("agent", `Limit reached or contact not found: ${parsed_data?.name}.`);
                 }
                 else {
-                    // Generic response
                     addMessage("agent", response.message || "I understood your request. How can I help further?");
                 }
             } else if (response.message) {
                 addMessage("agent", response.message);
             } else {
-                addMessage("agent", "I received your message but couldn't process it. Please try again.");
+                addMessage("agent", "I received your message buf couldn't process it.");
             }
         } catch (error) {
             console.error("Chat error:", error);
@@ -264,69 +152,100 @@ function AgentPage({ coins, userAddress }) {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
 
-            // Check for confirmation
-            if (pendingTransaction && input.toLowerCase().trim() === "yes") {
-                confirmTransaction();
-            } else {
-                sendMessage();
-            }
+
+            // Standard send
+            sendMessage();
         }
     };
 
-    const confirmTransaction = async () => {
-        if (!pendingTransaction) return;
+    /**
+     * Execute all queued transactions as a single Programmable Transaction Block (PTB)
+     */
+    const executeBatch = async () => {
+        if (!transactionQueue.length) return;
 
-        setInput("");
-        addMessage("user", "yes");
-
-        // Debug log
-        console.log("=== EXECUTING TRANSACTION ===");
-        console.log("Pending transaction:", JSON.stringify(pendingTransaction, null, 2));
-
-        addMessage("agent", "Executing transaction... Please approve in your wallet.");
+        console.log("=== EXECUTING BATCH ===");
+        addMessage("agent", "Building batch transaction... Please sign in your wallet.");
         setIsLoading(true);
 
         try {
-            let result;
+            const tx = new Transaction();
 
-            if (pendingTransaction.type === "transfer") {
-                console.log("Executing transfer...");
-                result = await executeTransfer(pendingTransaction);
-            } else if (pendingTransaction.type === "move_call" && pendingTransaction.target) {
-                console.log("Executing move_call with target:", pendingTransaction.target);
-                result = await executeMoveCall(pendingTransaction);
-            } else {
-                console.error("Unknown transaction type:", pendingTransaction.type);
-                throw new Error(`Unknown transaction type: ${pendingTransaction.type}`);
+            // Iterate over queue and add commands to the PTB
+            for (const item of transactionQueue) {
+                if (item.type === "transfer") {
+                    // --- Transfer logic ---
+                    const amountInMist = BigInt(item.amount);
+                    const [coin] = tx.splitCoins(tx.gas, [amountInMist]);
+                    tx.transferObjects([coin], item.recipient);
+                }
+                else if (item.type === "move_call") {
+                    // --- Move Call logic ---
+                    const args = (item.arguments || []).map(arg => {
+                        if (typeof arg === 'object') {
+                            switch (arg.type) {
+                                case 'object': return tx.object(arg.value);
+                                case 'string': return tx.pure.string(arg.value);
+                                case 'u64': return tx.pure.u64(arg.value);
+                                case 'vector_u8':
+                                    const bytes = new Uint8Array(
+                                        arg.value.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []
+                                    );
+                                    return tx.pure.vector('u8', Array.from(bytes));
+                                default: return arg.value;
+                            }
+                        }
+                        return arg;
+                    });
+
+                    tx.moveCall({
+                        target: item.target,
+                        arguments: args,
+                        typeArguments: item.type_arguments || [],
+                    });
+                }
             }
 
-            console.log("Transaction result:", result);
-            const digest = result.digest;
-            addMessage("agent",
-                `Transaction successful!\n\n` +
-                `Digest: ${digest}\n\n` +
-                `View on explorer:\nhttps://suiscan.xyz/testnet/tx/${digest}`
-            );
-
-        } catch (error) {
-            console.error("Transaction error:", error);
-            console.error("Error details:", {
-                message: error.message,
-                name: error.name,
-                stack: error.stack
+            // Execute the single PTB
+            const result = await signAndExecute({
+                transaction: tx,
             });
 
-            // Handle user rejection
-            if (error.message?.includes('rejected') || error.message?.includes('cancelled')) {
-                addMessage("agent", "Transaction cancelled by user.");
+            console.log("Batch Execution Result:", result);
+
+            // Wait for confirmation
+            await suiClient.waitForTransaction({ digest: result.digest });
+
+            addMessage("agent",
+                `Batch executed successfully!\nDigest: ${result.digest}\n\n` +
+                `https://suiscan.xyz/testnet/tx/${result.digest}`
+            );
+
+            // Clear queue on success
+            setTransactionQueue([]);
+
+        } catch (error) {
+            console.error("Batch Execution Error:", error);
+            if (error.message?.includes('rejected')) {
+                addMessage("agent", "Transaction flow cancelled.");
             } else {
-                addMessage("agent", `Transaction failed: ${error.message}`);
+                addMessage("agent", `Execution failed: ${error.message}`);
             }
         } finally {
-            setPendingTransaction(null);
             setIsLoading(false);
         }
     };
+
+    const removeTransactionFromQueue = (index) => {
+        setTransactionQueue(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const clearQueue = () => {
+        setTransactionQueue([]);
+        addMessage("agent", "Transaction queue cleared.", { type: "system" });
+    };
+
+
 
     // Coin hover handlers
     const handleCoinHover = (coin, rect) => {
@@ -430,15 +349,23 @@ function AgentPage({ coins, userAddress }) {
                     />
                     <button
                         className="btn btn-primary"
-                        onClick={pendingTransaction ? confirmTransaction : sendMessage}
+                        onClick={sendMessage}
                         disabled={isLoading}
                     >
-                        {isLoading ? "..." : (pendingTransaction ? "Confirm" : "Send")}
+                        {isLoading ? "..." : "Send"}
                     </button>
                 </div>
             </div>
 
             <div className="agent-coins-column">
+                <TransactionQueue
+                    queue={transactionQueue}
+                    onExecute={executeBatch}
+                    onClear={clearQueue}
+                    onRemove={removeTransactionFromQueue}
+                    isLoading={isLoading}
+                />
+
                 <h3 className="coins-title">Coins</h3>
                 <p className="coins-subtitle">Hover to see the mini chart.</p>
 
