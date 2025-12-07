@@ -1,0 +1,65 @@
+﻿sui : INCLUDING DEPENDENCY Bridge
+At line:1 char:1
++ sui move build 2>&1 | Out-File -FilePath build_output.txt -Encod
+ing u ...
++ ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INCLUDING DEPENDENCY 
+    Bridge:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INCLUDING DEPENDENCY SuiSystem
+INCLUDING DEPENDENCY Sui
+INCLUDING DEPENDENCY MoveStdlib
+BUILDING isim
+[0m[1m[38;5;11mwarning[Lint W99001][0m[1m: non-composable tra
+nsfer to sender[0m
+   [0m[36mÔöîÔöÇ[0m .\sources\stake.move:85:9
+   [0m[36mÔöé[0m
+[0m[36m62[0m [0m[36mÔöé[0m     public fun unstake(
+   [0m[36mÔöé[0m                [0m[36m-------[0m [0m[36mR
+eturning an object from a function, allows a caller to use the obj
+ect and enables composability via programmable transactions.[0m
+   [0m[36m┬À[0m
+[0m[36m67[0m [0m[36mÔöé[0m         let sender = ctx.sender()
+;
+   [0m[36mÔöé[0m                      [0m[36m------------[0m
+ [0m[36mTransaction sender address coming from here[0m
+   [0m[36m┬À[0m
+[0m[36m85[0m [0m[36mÔöé[0m         [0m[33mtransfer::public
+_transfer(coin, sender)[0m;
+   [0m[36mÔöé[0m         [0m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^[0m [0m[33mTransfer of an object to transaction sende
+r address[0m
+   [0m[36mÔöé[0m
+   [0m[36m=[0m This warning can be suppressed with '#[allow(lin
+t(self_transfer))]' applied to the 'module' or module member ('con
+st', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[Lint W99001][0m[1m: non-composable tra
+nsfer to sender[0m
+    [0m[36mÔöîÔöÇ[0m .\sources\address_book.move:102:9
+    [0m[36mÔöé[0m
+[0m[36m 85[0m [0m[36mÔöé[0m     public fun create_address_bo
+ok(ctx: &mut TxContext) {
+    [0m[36mÔöé[0m                [0m[36m-------------------[
+0m [0m[36mReturning an object from a function, allows a caller t
+o use the object and enables composability via programmable transa
+ctions.[0m
+[0m[36m 86[0m [0m[36mÔöé[0m         let sender = ctx.sender(
+);
+    [0m[36mÔöé[0m                      [0m[36m------------[0
+m [0m[36mTransaction sender address coming from here[0m
+    [0m[36m┬À[0m
+[0m[36m102[0m [0m[36mÔöé[0m         [0m[33mtransfer::trans
+fer(book, sender)[0m;
+    [0m[36mÔöé[0m         [0m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^[0m [0m[33mTransfer of an object to transaction sender addr
+ess[0m
+    [0m[36mÔöé[0m
+    [0m[36m=[0m This warning can be suppressed with '#[allow(li
+nt(self_transfer))]' applied to the 'module' or module member ('co
+nst', 'fun', or 'struct')
+
+Please report feedback on the linter warnings at https://forums.su
+i.io
+

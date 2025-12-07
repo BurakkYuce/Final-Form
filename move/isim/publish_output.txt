@@ -1,0 +1,5 @@
+﻿Committing lock file
+
+Caused by:
+    0: failed to persist temporary file: Eri┼şim engellendi. (os error 5)
+    1: Eri┼şim engellendi. (os error 5)
